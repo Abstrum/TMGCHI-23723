@@ -41,7 +41,7 @@
   .c-bl{bottom:-1px;left:-1px;border-right:none;border-top:none}
   .c-br{bottom:-1px;right:-1px;border-left:none;border-top:none}
   svg,.custom-img{width:150px; height:150px; filter:drop-shadow(0 0 8px rgba(255,176,0,.5));}
-  .custom-img{object-fit:contain; image-rendering:pixelated;}
+  .custom-img{object-fit:contain; background:transparent;}
   .glyph-label{font-family:'VT323',monospace; font-size:21px; letter-spacing:3px; margin-top:4px; text-shadow:0 0 6px var(--amber);}
   .status-line{font-size:11px; color:var(--amber-dim); letter-spacing:1px; margin-top:2px;}
   .status-line.crit{color:var(--red); animation:flick 1.4s steps(2) infinite;}
@@ -93,7 +93,7 @@
   <div class="panel glyph-wrap">
     <div class="corner c-tl"></div><div class="corner c-tr"></div>
     <div class="corner c-bl"></div><div class="corner c-br"></div>
-    <div class="lbl"><span>APPEARANCE</span><a id="imgBtn">upload png</a></div>
+    <div class="lbl"><span>APPEARANCE</span><a id="imgBtn">upload static png</a></div>
     <input type="file" id="imgFile" accept="image/png" class="hidden">
     <svg id="glyph" viewBox="0 0 200 200"></svg>
     <img id="customImg" class="custom-img hidden">
@@ -267,6 +267,69 @@ async function askBrain(currentMeta, currentFacts){
   return {type:'question', text:q.q, domain:q.domain};
 }
 
+/* ============ ANIMATED APPEARANCE (frame sets) ============
+   Drop your transparent PNG frames into a folder next to this HTML file in
+   your GitHub repo (e.g. "appearance/"), then list the filenames below.
+   - 1 filename in an array  = static image for that state
+   - 2+ filenames in an array = they cycle on a loop (simple flip animation)
+   - Leave an array empty []  = falls back automatically to the glow glyph
+   State picked each tick:
+     sleep = unit is asleep/napping
+     low   = hunger or energy below 30
+     happy = everything else
+*/
+const FRAME_SETS = {
+  happy: ['1.png','2.png','3.png','2.png','4.png','5.png','6.png','5.png','1.png'],
+  sleep: ['s1.png','s2.png','s3.png','s2.png','s1.png'],
+  low:   ['l1.png','l1.png','l1.png','l2.png','l3.png','l2.png','l1.png',]
+};
+const FRAME_MS = 450; // ms between frames of the same set
+let frameTimer = null, frameState = null, frameIdx = 0;
+
+function hasFrameSets(){ return Object.values(FRAME_SETS).some(a=>a.length); }
+function currentAppearanceState(){
+  if(isSleepingNow()) return 'sleep';
+  if(vitals.hunger < 30 || vitals.energy < 30) return 'low';
+  return 'happy';
+}
+function showCustomImg(src){
+  const img = document.getElementById('customImg');
+  const svg = document.getElementById('glyph');
+  img.onerror = ()=>{ // missing/renamed file — fall back to the glyph instead of a broken image
+    img.classList.add('hidden');
+    svg.classList.remove('hidden');
+    drawGlyph();
+  };
+  img.onload = ()=>{
+    img.classList.remove('hidden');
+    svg.classList.add('hidden');
+  };
+  img.src = src;
+}
+function refreshFrame(){
+  const state = currentAppearanceState();
+  const frames = FRAME_SETS[state] || [];
+  if(!frames.length){
+    // nothing configured for this state — show the glyph instead
+    document.getElementById('customImg').classList.add('hidden');
+    document.getElementById('glyph').classList.remove('hidden');
+    drawGlyph();
+    return;
+  }
+  if(state !== frameState){ frameState = state; frameIdx = 0; }
+  showCustomImg(frames[frameIdx]);
+}
+function startFrameLoop(){
+  clearInterval(frameTimer);
+  refreshFrame();
+  frameTimer = setInterval(()=>{
+    const frames = FRAME_SETS[currentAppearanceState()] || [];
+    if(frames.length < 2){ refreshFrame(); return; } // static or empty — just re-check state
+    frameIdx = (frameIdx+1) % frames.length;
+    showCustomImg(frames[frameIdx]);
+  }, FRAME_MS);
+}
+
 /* ============ STATE ============ */
 let meta, facts={}, vitals, sleep, games, appearance;
 let pendingBrainResult=null;
@@ -412,10 +475,15 @@ function renderAppearance(){
   const svg = document.getElementById('glyph');
   const img = document.getElementById('customImg');
   const reset = document.getElementById('resetImg');
-  if(appearance.useCustom && appearance.dataUrl){
+  if(hasFrameSets()){
+    reset.classList.add('hidden');
+    startFrameLoop();
+  } else if(appearance.useCustom && appearance.dataUrl){
+    clearInterval(frameTimer);
     svg.classList.add('hidden'); img.classList.remove('hidden'); reset.classList.remove('hidden');
     img.src = appearance.dataUrl;
   } else {
+    clearInterval(frameTimer);
     svg.classList.remove('hidden'); img.classList.add('hidden'); reset.classList.add('hidden');
     drawGlyph();
   }
@@ -450,14 +518,16 @@ function updateSleepUI(){
     label.textContent = 'SLEEPING';
     status.textContent = isMandatoryNight(Date.now()) ? 'NIGHT CYCLE // DO NOT DISTURB' : 'NAPPING';
     status.classList.add('sleep');
-    if(!appearance.useCustom) drawGlyph();
+    if(hasFrameSets()) refreshFrame();
+    else if(!appearance.useCustom) drawGlyph();
     return;
   }
   const avg = (vitals.hunger+vitals.happiness+vitals.energy)/3;
   if(avg<25){ label.textContent='CRITICAL'; status.textContent='WARNING // NULL NULL'; status.classList.add('crit'); }
   else if(avg<55){ label.textContent='UNSTABLE'; status.textContent='MONITORING'; }
   else { label.textContent='STABLE'; status.textContent='NULL NULL NULL'; }
-  if(!appearance.useCustom) drawGlyph();
+  if(hasFrameSets()) refreshFrame();
+  else if(!appearance.useCustom) drawGlyph();
 }
 
 /* ============ ANSWER / CORRECTION ============ */
@@ -537,41 +607,17 @@ document.getElementById('resetImg').onclick = async ()=>{
 document.getElementById('imgFile').onchange = async (e)=>{
   const file = e.target.files[0];
   if(!file) return;
-  const url = await ditherToAmber(file);
+  // No canvas processing — the file's own alpha channel is kept exactly as-is,
+  // so a transparent PNG stays transparent (no filled-in square/border).
+  const url = await fileToDataUrl(file);
   appearance = {useCustom:true, dataUrl:url};
   await dbSet('appearance', appearance);
   renderAppearance();
 };
-function ditherToAmber(file){
+function fileToDataUrl(file){
   return new Promise((resolve)=>{
     const reader = new FileReader();
-    reader.onload = ()=>{
-      const img = new Image();
-      img.onload = ()=>{
-        const SIZE=96;
-        const c = document.createElement('canvas'); c.width=SIZE; c.height=SIZE;
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#000'; ctx.fillRect(0,0,SIZE,SIZE);
-        const scale = Math.min(SIZE/img.width, SIZE/img.height);
-        const w = img.width*scale, h = img.height*scale;
-        ctx.drawImage(img, (SIZE-w)/2, (SIZE-h)/2, w, h);
-        const data = ctx.getImageData(0,0,SIZE,SIZE);
-        const bayer = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
-        for(let y=0;y<SIZE;y++){
-          for(let x=0;x<SIZE;x++){
-            const i=(y*SIZE+x)*4;
-            const lum = 0.3*data.data[i]+0.59*data.data[i+1]+0.11*data.data[i+2];
-            const threshold = (bayer[y%4][x%4]/16)*255;
-            const on = lum > threshold;
-            if(on){ data.data[i]=255; data.data[i+1]=176; data.data[i+2]=0; data.data[i+3]=255; }
-            else { data.data[i]=10; data.data[i+1]=7; data.data[i+2]=4; data.data[i+3]=255; }
-          }
-        }
-        ctx.putImageData(data,0,0);
-        resolve(c.toDataURL('image/png'));
-      };
-      img.src = reader.result;
-    };
+    reader.onload = ()=> resolve(reader.result);
     reader.readAsDataURL(file);
   });
 }
