@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SUBJECT // VITALS</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0704">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<style>
+  :root{
+    --amber:#ffb000; --amber-dim:#8a5c00; --amber-bright:#ffd27a;
+    --bg:#0a0704; --red:#ff3b1f;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box}
+  html{height:100%}
+  body{height:100%; margin:0; background:var(--bg); color:var(--amber); font-family:'Share Tech Mono',monospace; display:flex; justify-content:center;}
+  .frame{width:100%; max-width:480px; min-height:100%; padding:16px 14px 26px;}
+  .scanlines{position:fixed; inset:0; pointer-events:none; z-index:5; mix-blend-mode:overlay;
+    background:repeating-linear-gradient(180deg, rgba(255,176,0,.06) 0px, rgba(255,176,0,.06) 1px, transparent 2px, transparent 3px);}
+  .vignette{position:fixed; inset:0; pointer-events:none; z-index:6; box-shadow:inset 0 0 140px rgba(0,0,0,.85);}
+  header{border:1px solid var(--amber-dim); padding:8px 12px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:baseline;}
+  header .tag{font-size:10px; letter-spacing:1px; color:var(--amber-dim);}
+  header .id{font-family:'VT323',monospace; font-size:19px; text-shadow:0 0 6px var(--amber);}
+  .panel{border:1px solid var(--amber-dim); padding:12px; margin-bottom:12px; position:relative;}
+  .panel .lbl{font-size:10px; letter-spacing:2px; color:var(--amber-dim); margin-bottom:8px; display:flex; justify-content:space-between;}
+  .lbl a{color:var(--amber-dim); text-decoration:underline; cursor:pointer;}
+  .glyph-wrap{text-align:center;}
+  .glyph-wrap .corner{position:absolute; width:10px; height:10px; border:1px solid var(--amber);}
+  .c-tl{top:-1px;left:-1px;border-right:none;border-bottom:none}
+  .c-tr{top:-1px;right:-1px;border-left:none;border-bottom:none}
+  .c-bl{bottom:-1px;left:-1px;border-right:none;border-top:none}
+  .c-br{bottom:-1px;right:-1px;border-left:none;border-top:none}
+  svg,.custom-img{width:150px; height:150px; filter:drop-shadow(0 0 8px rgba(255,176,0,.5));}
+  .custom-img{object-fit:contain; image-rendering:pixelated;}
+  .glyph-label{font-family:'VT323',monospace; font-size:21px; letter-spacing:3px; margin-top:4px; text-shadow:0 0 6px var(--amber);}
+  .status-line{font-size:11px; color:var(--amber-dim); letter-spacing:1px; margin-top:2px;}
+  .status-line.crit{color:var(--red); animation:flick 1.4s steps(2) infinite;}
+  .status-line.sleep{color:var(--amber-bright);}
+  @keyframes flick{50%{opacity:.35}}
+  .term{font-family:'VT323',monospace; font-size:18px; line-height:1.3; min-height:44px; margin-top:10px; text-shadow:0 0 5px var(--amber); border-top:1px dashed #2a1c08; padding-top:8px;}
+  .term.idle{color:var(--amber-bright);}
+  input[type=text]{
+    width:100%; background:#120c06; border:1px solid var(--amber); color:var(--amber-bright);
+    font-family:'Share Tech Mono',monospace; padding:10px; font-size:13px; margin-top:10px;
+  }
+  .row2{display:flex; gap:8px; margin-top:8px;}
+  button{
+    font-family:'Share Tech Mono',monospace; background:transparent; color:var(--amber);
+    border:1px solid var(--amber); padding:10px 8px; font-size:11px; letter-spacing:2px; cursor:pointer;
+    -webkit-tap-highlight-color:transparent; flex:1;
+  }
+  button:active{background:var(--amber); color:#0a0704;}
+  button.ghost{color:var(--amber-dim); border-color:var(--amber-dim);}
+  button:disabled{opacity:.35; cursor:default;}
+  .stats{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; font-size:10px;}
+  .stat{border:1px solid var(--amber-dim); padding:6px 8px;}
+  .stat b{color:var(--amber-bright); font-family:'VT323',monospace; font-size:16px; display:block;}
+  .actions{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px;}
+  .actions button{padding:12px 4px; font-size:10px;}
+  .memlog{font-size:11px; max-height:150px; overflow-y:auto; color:var(--amber-dim);}
+  .memlog .item{border-bottom:1px dashed #2a1c08; padding:6px 0; cursor:pointer;}
+  .memlog .item:active{color:var(--amber-bright);}
+  .memlog .item .q{color:var(--amber);}
+  .memlog .item .meta{font-size:9px; opacity:.7;}
+  .memlog .item.superseded{opacity:.4; text-decoration:line-through;}
+  footer{margin-top:10px; font-size:9px; text-align:center; color:var(--amber-dim); letter-spacing:1px;}
+  .board{display:grid; grid-template-columns:repeat(8,1fr); border:1px solid var(--amber-dim); margin-top:10px;}
+  .sq{aspect-ratio:1; display:flex; align-items:center; justify-content:center; font-size:22px; cursor:pointer; user-select:none;}
+  .sq.light{background:#1c1206;}
+  .sq.dark{background:#0d0904;}
+  .sq.sel{outline:2px solid var(--amber); outline-offset:-2px;}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div class="scanlines"></div><div class="vignette"></div>
+<div class="frame">
+  <header>
+    <div><div class="tag">MEMORY-CLASS UNIT</div><div class="id" id="petName">UNIT-000</div></div>
+    <div class="tag" id="metaTag">AGE 00D · S00</div>
+  </header>
+
+  <div class="panel glyph-wrap">
+    <div class="corner c-tl"></div><div class="corner c-tr"></div>
+    <div class="corner c-bl"></div><div class="corner c-br"></div>
+    <div class="lbl"><span>APPEARANCE</span><a id="imgBtn">upload png</a></div>
+    <input type="file" id="imgFile" accept="image/png" class="hidden">
+    <svg id="glyph" viewBox="0 0 200 200"></svg>
+    <img id="customImg" class="custom-img hidden">
+    <div class="glyph-label" id="glyphLabel">STABLE</div>
+    <div class="status-line" id="statusLine">NULL NULL NULL</div>
+    <button class="ghost hidden" id="resetImg" style="margin-top:8px; padding:8px 6px; font-size:10px;">REVERT TO GLYPH</button>
+
+    <div class="term" id="termText"></div>
+    <div id="answerBox" class="hidden">
+      <input type="text" id="answerInput" placeholder="type your answer...">
+      <div class="row2">
+        <button id="submitAns">LOG ANSWER</button>
+        <button class="ghost" id="skipAns">SKIP</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">HUNGER<b id="s_hunger">--</b></div>
+    <div class="stat">HAPPINESS<b id="s_happiness">--</b></div>
+    <div class="stat">ENERGY<b id="s_energy">--</b></div>
+    <div class="stat">DISCIPLINE<b id="s_discipline">--</b></div>
+  </div>
+
+  <div class="actions">
+    <button id="btnFeed">FEED</button>
+    <button id="btnPlay">PLAY</button>
+    <button id="btnRest">REST</button>
+    <button id="btnMem">MEMORY</button>
+  </div>
+
+  <div class="panel hidden" id="memPanel">
+    <div class="lbl">FACT LOG — TAP TO CORRECT</div>
+    <div class="memlog" id="memlog"></div>
+  </div>
+
+  <div class="panel hidden" id="correctPanel">
+    <div class="lbl">CORRECTING A MEMORY</div>
+    <div class="term" id="correctQ" style="font-size:15px; border-top:none; margin-top:0;"></div>
+    <input type="text" id="correctInput" placeholder="the corrected answer...">
+    <div class="row2">
+      <button id="submitCorrect">SAVE CORRECTION</button>
+      <button class="ghost" id="cancelCorrect">CANCEL</button>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="chessPanel">
+    <div class="lbl">CHESS — YOU ARE WHITE</div>
+    <div class="term" id="chessStatus" style="font-size:14px; border-top:none; margin-top:0;">...</div>
+    <div class="board" id="board"></div>
+    <div class="row2 hidden" id="playAgainRow">
+      <button id="playAgainYes">PLAY AGAIN</button>
+      <button class="ghost" id="playAgainNo">NOT NOW</button>
+    </div>
+    <div class="row2"><button class="ghost" id="closeChess">CLOSE</button></div>
+  </div>
+
+  <footer>TVA-CLASS MEMORY UNIT // FIREBASE RTDB // v0.2 PROTOTYPE</footer>
+</div>
+
+<script>
+/* ============ FIREBASE CONFIG — fill in for real persistence ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBFT5---19ShX8Vwrgc90uoMtnOWBEB1Ro",
+  authDomain: "tmgchi-23923.firebaseapp.com",
+  databaseURL: "https://tmgchi-23923-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "tmgchi-23923",
+  storageBucket: "tmgchi-23923.firebasestorage.app",
+  messagingSenderId: "239507079156",
+  appId: "1:239507079156:web:2e5abd73d7129c8c9f83a1"
+};
+let useFirebase=false, db=null, uid='owner';
+async function initBackend(){
+  if(firebaseConfig.apiKey){
+    try{
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database(); useFirebase=true;
+    }catch(e){ console.warn('Firebase init failed, using local storage', e); }
+  }
+  if(!useFirebase){
+    uid = 'owner'; // same fixed key locally too, kept for consistency
+  }
+}
+function localGet(p,def){ try{ const r=localStorage.getItem('tva_'+p); return r?JSON.parse(r):def; }catch(e){ return def; } }
+function localSet(p,v){ localStorage.setItem('tva_'+p, JSON.stringify(v)); }
+async function dbGet(p,def){ if(useFirebase){ const s=await db.ref('pets/'+uid+'/'+p).once('value'); return s.exists()?s.val():def; } return localGet(p,def); }
+async function dbSet(p,v){ if(useFirebase){ await db.ref('pets/'+uid+'/'+p).set(v); } else localSet(p,v); }
+async function dbPush(p,v){
+  if(useFirebase){ const r=db.ref('pets/'+uid+'/'+p).push(); await r.set(v); return r.key; }
+  const key='f'+Date.now()+Math.floor(Math.random()*999); const all=localGet(p,{}); all[key]=v; localSet(p,all); return key;
+}
+async function dbUpdate(p,v){
+  if(useFirebase){ await db.ref('pets/'+uid+'/'+p).update(v); }
+  else{ const parts=p.split('/'); const key=parts.pop(); const parent=parts.join('/'); const all=localGet(parent,{}); all[key]=Object.assign(all[key]||{},v); localSet(parent,all); }
+}
+
+/* ============ TYPEWRITER ============ */
+function typeText(el, text, speed){
+  speed = speed || 28;
+  el.textContent = '';
+  return new Promise((resolve)=>{
+    let i = 0;
+    const iv = setInterval(()=>{
+      el.textContent += text[i];
+      i++;
+      if(i >= text.length){ clearInterval(iv); resolve(); }
+    }, speed);
+  });
+}
+
+/* ============ TUNABLE RATES (minutes per 1 point of passive drain) ============ */
+const HUNGER_RATE = 8;
+const HAPPY_RATE = 25;
+const ENERGY_RATE = 64;
+const DISC_RATE = 40;
+const NAP_MINUTES = 30;
+const STAGE_RANGES = { infant:[80,90], juvenile:[70,80], adult:[60,70] };
+function stageFor(ageDays){ return ageDays<30?'infant': ageDays<90?'juvenile':'adult'; }
+function rollThreshold(stage){ const [lo,hi]=STAGE_RANGES[stage]; return Math.round(lo+Math.random()*(hi-lo)); }
+function clamp(v){ return Math.max(0, Math.min(100, v)); }
+function dateStr(ts){ return new Date(ts).toDateString(); }
+function startOfDay(ts){ const d=new Date(ts); d.setHours(0,0,0,0); return d.getTime(); }
+
+/* ============ QUESTION BANK ============ */
+const QUESTION_BANK = [
+  {domain:'existence', q:"If you could remember only one day of your life forever, which would you keep?"},
+  {domain:'existence', q:"Do you think you're the same person you were five years ago?"},
+  {domain:'preference', q:"What's something you used to hate that you love now?"},
+  {domain:'preference', q:"Silence or noise — which unsettles you more?"},
+  {domain:'science', q:"If you understood one unsolved scientific mystery perfectly, which would you pick?"},
+  {domain:'science', q:"Do you think there's intelligent life elsewhere?"},
+  {domain:'art', q:"What's a piece of art, music, or writing that changed how you see things?"},
+  {domain:'art', q:"Do you create things, or mostly consume what others create?"},
+  {domain:'philosophy', q:"Is a decision still yours if you were nudged into making it?"},
+  {domain:'philosophy', q:"What do you think happens after you die?"},
+  {domain:'everyday', q:"What does your ideal ordinary Tuesday look like?"},
+  {domain:'everyday', q:"What's a small thing that reliably puts you in a bad mood?"},
+  {domain:'memory', q:"What's the earliest memory you're fairly sure is real, not imagined?"},
+  {domain:'memory', q:"Is there a smell that instantly takes you somewhere else?"},
+  {domain:'relationships', q:"Do you find it easy to trust people, or does it take a long time?"},
+  {domain:'relationships', q:"Who taught you the most without meaning to?"},
+  {domain:'hypothetical', q:"If you had to leave everything behind and start over somewhere new, would you?"},
+  {domain:'hypothetical', q:"Would you want to know the exact date you'll die?"},
+  {domain:'work', q:"Do you work to live, or live to work, honestly?"},
+  {domain:'work', q:"What's something you're good at that nobody asked you to be good at?"},
+  {domain:'fear', q:"What's something you were scared of as a kid that still lingers a little?"},
+  {domain:'fear', q:"Do you fear being forgotten, or being misunderstood, more?"},
+  {domain:'identity', q:"If a stranger described you after one conversation, what would they get wrong?"},
+  {domain:'identity', q:"What's a belief you hold that most people around you don't?"}
+];
+function pickUnaskedQuestion(asked){
+  const pool = QUESTION_BANK.filter(q=>!asked.includes(q.q));
+  const src = pool.length?pool:QUESTION_BANK;
+  return src[Math.floor(Math.random()*src.length)];
+}
+const IDLE_LINES = ["No questions tonight. Just staying close by.","Some sessions don't need words.","Recalibrating quietly. You don't need to do anything.","Just watching the readout with you."];
+const REACTIONS = ["Ohh.","I see.","Hmm.","Interesting.","Noted.","...huh.","Understood."];
+
+async function askBrain(currentMeta, currentFacts){
+  const active = Object.values(currentFacts).filter(f=>f.status!=='superseded');
+  const ageDays = Math.floor((Date.now()-currentMeta.born)/86400000);
+  const asked = active.map(f=>f.question);
+  const canFollowUp = ageDays>=21 && active.length>=20;
+  const roll = Math.random();
+  if(canFollowUp && roll<0.25 && active.length){
+    const past = active[Math.floor(Math.random()*active.length)];
+    return {type:'followup', text:`Earlier you told me: "${past.answer}" — about ${past.question.toLowerCase()} Does that still hold?`, refFactId:past.id};
+  }
+  if(roll<0.18) return {type:'idle', text:IDLE_LINES[Math.floor(Math.random()*IDLE_LINES.length)]};
+  const q = pickUnaskedQuestion(asked);
+  return {type:'question', text:q.q, domain:q.domain};
+}
+
+/* ============ STATE ============ */
+let meta, facts={}, vitals, sleep, games, appearance;
+let pendingBrainResult=null;
+let chessGame=null, chessDepth=1, selectedSq=null;
+
+async function boot(){
+  await initBackend();
+  meta = await dbGet('meta', null);
+  if(!meta){ meta = {name:'UNIT-'+String(Math.floor(Math.random()*900+100)), born:Date.now(), sessionCount:0, lastSession:0}; await dbSet('meta', meta); }
+  facts = await dbGet('facts', {});
+  vitals = await dbGet('vitals', null);
+  if(!vitals){ vitals = {hunger:80, happiness:80, energy:90, discipline:60}; await dbSet('vitals', vitals); }
+  if(vitals.discipline===undefined) vitals.discipline = 60;
+
+  sleep = await dbGet('sleep', null);
+  if(!sleep){ sleep = {date:null, minutesToday:0, energyBaseline:null, thresholdToday:null, napEnd:0, lastUpdate:Date.now()}; }
+  if(!sleep.lastUpdate) sleep.lastUpdate = Date.now();
+  games = await dbGet('games', null);
+  if(!games){ games = {date:null, playedToday:0}; }
+  appearance = await dbGet('appearance', {useCustom:false, dataUrl:null});
+
+  ensureDailyRoll(Date.now());
+  simulateSince(sleep.lastUpdate, Date.now());
+  sleep.lastUpdate = Date.now();
+  await Promise.all([dbSet('vitals', vitals), dbSet('sleep', sleep), dbSet('games', games)]);
+
+  meta.sessionCount = (meta.sessionCount||0)+1;
+  meta.lastSession = Date.now();
+  await dbSet('meta', meta);
+
+  renderHeader(); renderVitals(); renderMemLog(); renderAppearance();
+  updateSleepUI();
+
+  document.getElementById('termText').textContent = '';
+  if(!isSleepingNow()){
+    const result = await askBrain(meta, facts);
+    pendingBrainResult = result;
+    if(result.type !== 'idle'){
+      const alreadyWaiting = Math.random() < 0.3; // some days it's already got something queued
+      const reveal = async ()=>{
+        document.getElementById('termText').classList.toggle('idle', false);
+        document.getElementById('answerBox').classList.remove('hidden');
+        await typeText(document.getElementById('termText'), result.text);
+      };
+      if(alreadyWaiting) reveal();
+      else setTimeout(reveal, 2500 + Math.random()*5500);
+    }
+    // idle sessions: stay completely silent, no text at all
+  }
+  // asleep: status line already shows SLEEPING / NIGHT CYCLE — no extra text needed
+
+  setInterval(tick, 30000);
+}
+
+function ensureDailyRoll(ts){
+  const ds = dateStr(ts);
+  if(sleep.date !== ds){
+    sleep.date = ds;
+    sleep.minutesToday = 0;
+    sleep.energyBaseline = null;
+    const ageDays = Math.floor((ts-meta.born)/86400000);
+    sleep.thresholdToday = rollThreshold(stageFor(ageDays));
+  }
+  if(games.date !== ds){ games.date = ds; games.playedToday = 0; }
+}
+
+function isMandatoryNight(ts){ return new Date(ts).getHours() < 8; }
+function isNapping(ts){ return sleep.napEnd && ts < sleep.napEnd; }
+function isSleepingNow(){ const now=Date.now(); return isMandatoryNight(now) || isNapping(now); }
+
+function simulateSince(from, to){
+  let cursor = from;
+  let guard = 0;
+  while(cursor < to && guard < 300){
+    guard++;
+    ensureDailyRoll(cursor);
+    const dayStart = startOfDay(cursor);
+    const nightEnd = dayStart + 8*3600*1000;
+    const nextMidnight = dayStart + 24*3600*1000;
+    let segEnd, asleep;
+    if(cursor < nightEnd){ segEnd = Math.min(to, nightEnd); asleep = true; }
+    else if(isNapping(cursor)){ segEnd = Math.min(to, sleep.napEnd); asleep = true; }
+    else {
+      let bound = Math.min(to, nextMidnight);
+      if(sleep.napEnd && sleep.napEnd > cursor && sleep.napEnd < bound) bound = sleep.napEnd;
+      segEnd = bound; asleep = false;
+    }
+    const minutes = (segEnd - cursor)/60000;
+    if(minutes>0){ if(asleep) applySleepMinutes(minutes); else applyAwakeMinutes(minutes); }
+    if(segEnd<=cursor) { cursor = to; break; }
+    cursor = segEnd;
+  }
+}
+function applySleepMinutes(min){
+  if(sleep.energyBaseline===null) sleep.energyBaseline = vitals.energy;
+  sleep.minutesToday = Math.min(720, sleep.minutesToday + min);
+  const recovered = (100 - sleep.energyBaseline) * (sleep.minutesToday/720);
+  vitals.energy = clamp(sleep.energyBaseline + recovered);
+}
+function applyAwakeMinutes(min){
+  vitals.hunger = clamp(vitals.hunger - min/HUNGER_RATE);
+  vitals.happiness = clamp(vitals.happiness - min/HAPPY_RATE);
+  vitals.energy = clamp(vitals.energy - min/ENERGY_RATE);
+  vitals.discipline = clamp(vitals.discipline - min/DISC_RATE);
+}
+
+async function tick(){
+  const now = Date.now();
+  simulateSince(sleep.lastUpdate, now);
+  sleep.lastUpdate = now;
+  if(sleep.napEnd && now >= sleep.napEnd) sleep.napEnd = 0;
+  await Promise.all([dbSet('vitals', vitals), dbSet('sleep', sleep)]);
+  renderVitals(); renderHeader(); updateSleepUI();
+}
+
+/* ============ RENDER ============ */
+function renderHeader(){
+  document.getElementById('petName').textContent = meta.name;
+  const ageDays = Math.floor((Date.now()-meta.born)/86400000);
+  document.getElementById('metaTag').textContent = `AGE ${String(ageDays).padStart(2,'0')}D · S${String(meta.sessionCount).padStart(2,'0')}`;
+}
+function renderVitals(){
+  document.getElementById('s_hunger').textContent = Math.round(vitals.hunger);
+  document.getElementById('s_happiness').textContent = Math.round(vitals.happiness);
+  document.getElementById('s_energy').textContent = Math.round(vitals.energy);
+  document.getElementById('s_discipline').textContent = Math.round(vitals.discipline);
+}
+function renderMemLog(){
+  const el = document.getElementById('memlog'); el.innerHTML='';
+  const entries = Object.entries(facts).sort((a,b)=>b[1].ts-a[1].ts);
+  if(!entries.length){ el.innerHTML='<div class="item">NO FACTS LOGGED YET</div>'; return; }
+  entries.forEach(([id,f])=>{
+    const div=document.createElement('div');
+    div.className='item'+(f.status==='superseded'?' superseded':'');
+    div.innerHTML = `<div class="q">${esc(f.question)}</div><div>${esc(f.answer)}</div><div class="meta">${new Date(f.ts).toLocaleDateString()} ${f.domain?('· '+f.domain):''}${f.status==='superseded'?' · SUPERSEDED':''}</div>`;
+    if(f.status!=='superseded') div.onclick = ()=>openCorrect(id,f);
+    el.appendChild(div);
+  });
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function renderAppearance(){
+  const svg = document.getElementById('glyph');
+  const img = document.getElementById('customImg');
+  const reset = document.getElementById('resetImg');
+  if(appearance.useCustom && appearance.dataUrl){
+    svg.classList.add('hidden'); img.classList.remove('hidden'); reset.classList.remove('hidden');
+    img.src = appearance.dataUrl;
+  } else {
+    svg.classList.remove('hidden'); img.classList.add('hidden'); reset.classList.add('hidden');
+    drawGlyph();
+  }
+}
+function drawGlyph(){
+  const avg = (vitals.hunger+vitals.happiness+vitals.energy)/3;
+  const n=6, cx=100, cy=100, rBase=70;
+  const active = Math.round((avg/100)*n);
+  let paths='';
+  for(let i=0;i<n;i++){
+    const a0=(Math.PI*2/n)*i - Math.PI/2, a1=(Math.PI*2/n)*(i+1)-Math.PI/2;
+    const r = rBase - i*3;
+    const x0=cx+r*Math.cos(a0), y0=cy+r*Math.sin(a0), x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+    const on = i<active;
+    paths += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="${on?'#ffb000':'#3a2a10'}" stroke-width="${on?3:1.5}" opacity="${on?1:0.5}"/>`;
+  }
+  const coreR = 10 + (avg/100)*14;
+  document.getElementById('glyph').innerHTML = `
+    <circle cx="100" cy="100" r="${coreR}" fill="#ffb000" opacity="0.85"/>
+    <circle cx="100" cy="100" r="${coreR+6}" fill="none" stroke="#8a5c00" stroke-width="1"/>
+    ${paths}
+    <circle cx="100" cy="100" r="82" fill="none" stroke="#3a2a10" stroke-width="1" stroke-dasharray="2 4"/>`;
+}
+function updateSleepUI(){
+  const label = document.getElementById('glyphLabel');
+  const status = document.getElementById('statusLine');
+  const sleeping = isSleepingNow();
+  document.getElementById('btnFeed').disabled = sleeping;
+  document.getElementById('btnPlay').disabled = sleeping;
+  status.classList.remove('crit','sleep');
+  if(sleeping){
+    label.textContent = 'SLEEPING';
+    status.textContent = isMandatoryNight(Date.now()) ? 'NIGHT CYCLE // DO NOT DISTURB' : 'NAPPING';
+    status.classList.add('sleep');
+    if(!appearance.useCustom) drawGlyph();
+    return;
+  }
+  const avg = (vitals.hunger+vitals.happiness+vitals.energy)/3;
+  if(avg<25){ label.textContent='CRITICAL'; status.textContent='WARNING // NULL NULL'; status.classList.add('crit'); }
+  else if(avg<55){ label.textContent='UNSTABLE'; status.textContent='MONITORING'; }
+  else { label.textContent='STABLE'; status.textContent='NULL NULL NULL'; }
+  if(!appearance.useCustom) drawGlyph();
+}
+
+/* ============ ANSWER / CORRECTION ============ */
+async function submitAnswer(){
+  const val = document.getElementById('answerInput').value.trim();
+  if(!val) return;
+  const rec = { question: pendingBrainResult.text, answer: val, domain: pendingBrainResult.domain||'followup', ts: Date.now(), status:'active' };
+  const key = await dbPush('facts', rec); facts[key]=rec;
+  if(pendingBrainResult.type==='followup' && pendingBrainResult.refFactId){
+    await dbUpdate('facts/'+pendingBrainResult.refFactId, {status:'superseded', supersededBy:key});
+    if(facts[pendingBrainResult.refFactId]) facts[pendingBrainResult.refFactId].status='superseded';
+  }
+  vitals.happiness = clamp(vitals.happiness+2);
+  await dbSet('vitals', vitals);
+  document.getElementById('answerInput').value='';
+  document.getElementById('answerBox').classList.add('hidden');
+  typeText(document.getElementById('termText'), REACTIONS[Math.floor(Math.random()*REACTIONS.length)]);
+  renderMemLog(); renderVitals();
+}
+function openCorrect(id,f){
+  document.getElementById('memPanel').classList.add('hidden');
+  document.getElementById('correctPanel').classList.remove('hidden');
+  document.getElementById('correctQ').textContent = f.question;
+  document.getElementById('correctInput').value = f.answer;
+  document.getElementById('correctPanel').dataset.origId = id;
+}
+async function saveCorrection(){
+  const origId = document.getElementById('correctPanel').dataset.origId;
+  const orig = facts[origId];
+  const newVal = document.getElementById('correctInput').value.trim();
+  if(!newVal || !orig) return;
+  const rec = {question:orig.question, answer:newVal, domain:orig.domain, ts:Date.now(), status:'active', correctsFactId:origId};
+  const key = await dbPush('facts', rec); facts[key]=rec;
+  await dbUpdate('facts/'+origId, {status:'superseded', supersededBy:key});
+  facts[origId].status='superseded';
+  document.getElementById('correctPanel').classList.add('hidden');
+  renderMemLog();
+}
+
+/* ============ ACTIONS ============ */
+document.getElementById('submitAns').onclick = submitAnswer;
+document.getElementById('skipAns').onclick = ()=>{
+  document.getElementById('answerBox').classList.add('hidden');
+  typeText(document.getElementById('termText'), "We'll come back to that.");
+};
+document.getElementById('btnFeed').onclick = async ()=>{
+  if(isSleepingNow()) return;
+  await tick();
+  vitals.hunger=clamp(vitals.hunger+20); vitals.happiness=clamp(vitals.happiness+3);
+  await dbSet('vitals', vitals); renderVitals();
+};
+document.getElementById('btnMem').onclick = ()=>{ document.getElementById('memPanel').classList.toggle('hidden'); renderMemLog(); };
+document.getElementById('cancelCorrect').onclick = ()=>{ document.getElementById('correctPanel').classList.add('hidden'); document.getElementById('memPanel').classList.remove('hidden'); };
+document.getElementById('submitCorrect').onclick = saveCorrection;
+
+document.getElementById('btnRest').onclick = async ()=>{
+  await tick();
+  const t = document.getElementById('termText');
+  if(isSleepingNow()){ typeText(t,'Already asleep.'); return; }
+  ensureDailyRoll(Date.now());
+  if(sleep.minutesToday>=720){ typeText(t,'Fully rested today.'); return; }
+  if(vitals.happiness<40){ typeText(t,"Too unhappy to settle down."); return; }
+  if(vitals.energy > sleep.thresholdToday+10){ typeText(t,'Not tired yet.'); return; }
+  sleep.napEnd = Date.now() + NAP_MINUTES*60000;
+  await dbSet('sleep', sleep);
+  updateSleepUI();
+  typeText(t, 'Taking a nap...');
+};
+
+/* ============ CUSTOM PNG APPEARANCE ============ */
+document.getElementById('imgBtn').onclick = ()=> document.getElementById('imgFile').click();
+document.getElementById('resetImg').onclick = async ()=>{
+  appearance = {useCustom:false, dataUrl:null};
+  await dbSet('appearance', appearance);
+  renderAppearance();
+};
+document.getElementById('imgFile').onchange = async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const url = await ditherToAmber(file);
+  appearance = {useCustom:true, dataUrl:url};
+  await dbSet('appearance', appearance);
+  renderAppearance();
+};
+function ditherToAmber(file){
+  return new Promise((resolve)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const SIZE=96;
+        const c = document.createElement('canvas'); c.width=SIZE; c.height=SIZE;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#000'; ctx.fillRect(0,0,SIZE,SIZE);
+        const scale = Math.min(SIZE/img.width, SIZE/img.height);
+        const w = img.width*scale, h = img.height*scale;
+        ctx.drawImage(img, (SIZE-w)/2, (SIZE-h)/2, w, h);
+        const data = ctx.getImageData(0,0,SIZE,SIZE);
+        const bayer = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+        for(let y=0;y<SIZE;y++){
+          for(let x=0;x<SIZE;x++){
+            const i=(y*SIZE+x)*4;
+            const lum = 0.3*data.data[i]+0.59*data.data[i+1]+0.11*data.data[i+2];
+            const threshold = (bayer[y%4][x%4]/16)*255;
+            const on = lum > threshold;
+            if(on){ data.data[i]=255; data.data[i+1]=176; data.data[i+2]=0; data.data[i+3]=255; }
+            else { data.data[i]=10; data.data[i+1]=7; data.data[i+2]=4; data.data[i+3]=255; }
+          }
+        }
+        ctx.putImageData(data,0,0);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ============ CHESS ============ */
+document.getElementById('btnPlay').onclick = ()=>{ if(!isSleepingNow()) startChess(); };
+document.getElementById('closeChess').onclick = ()=> document.getElementById('chessPanel').classList.add('hidden');
+document.getElementById('playAgainYes').onclick = startChess;
+document.getElementById('playAgainNo').onclick = ()=>{ document.getElementById('chessPanel').classList.add('hidden'); };
+
+function startChess(){
+  if(typeof Chess === 'undefined'){ alert('Chess engine failed to load — check your connection and reload.'); return; }
+  chessGame = new Chess();
+  chessDepth = 1 + Math.floor(Math.random()*3);
+  selectedSq = null;
+  document.getElementById('chessPanel').classList.remove('hidden');
+  document.getElementById('playAgainRow').classList.add('hidden');
+  document.getElementById('chessStatus').textContent = `NEW GAME — OPPONENT DEPTH ${chessDepth} (assigned randomly this game)`;
+  renderBoard();
+}
+const PIECE_GLYPH = {p:'♟',r:'♜',n:'♞',b:'♝',q:'♛',k:'♚',P:'♙',R:'♖',N:'♘',B:'♗',Q:'♕',K:'♔'};
+function renderBoard(){
+  const boardEl = document.getElementById('board'); boardEl.innerHTML='';
+  const board = chessGame.board();
+  for(let r=0;r<8;r++){
+    for(let c=0;c<8;c++){
+      const file='abcdefgh'[c];
+      const rank=8-r;
+      const sqName=file+rank;
+      const piece=board[r][c];
+      const div=document.createElement('div');
+      div.className='sq '+(((r+c)%2===0)?'light':'dark')+(selectedSq===sqName?' sel':'');
+      if(piece){
+        const glyph = piece.color==='w'? piece.type.toUpperCase() : piece.type;
+        div.textContent = PIECE_GLYPH[glyph];
+      }
+      div.onclick = ()=>onSquareClick(sqName);
+      boardEl.appendChild(div);
+    }
+  }
+}
+function onSquareClick(sqName){
+  if(chessGame.game_over()) return;
+  if(chessGame.turn()!=='w') return;
+  if(selectedSq){
+    const move = chessGame.move({from:selectedSq, to:sqName, promotion:'q'});
+    selectedSq = null;
+    if(move){
+      renderBoard();
+      checkGameOver().then(over=>{ if(!over) setTimeout(engineMove, 350); });
+    } else {
+      const piece = chessGame.get(sqName);
+      selectedSq = (piece && piece.color==='w') ? sqName : null;
+      renderBoard();
+    }
+  } else {
+    const piece = chessGame.get(sqName);
+    if(piece && piece.color==='w'){ selectedSq=sqName; renderBoard(); }
+  }
+}
+function evalBoard(c){
+  const vals={p:1,n:3,b:3,r:5,q:9,k:0};
+  let score=0;
+  c.board().forEach(row=>row.forEach(sq=>{ if(sq){ const v=vals[sq.type]; score += sq.color==='w'?v:-v; } }));
+  return score;
+}
+function minimax(c, depth, isMax, alpha, beta){
+  if(depth===0 || c.game_over()) return evalBoard(c);
+  const moves = c.moves();
+  if(isMax){
+    let best=-Infinity;
+    for(const m of moves){ c.move(m); best=Math.max(best, minimax(c,depth-1,false,alpha,beta)); c.undo(); alpha=Math.max(alpha,best); if(beta<=alpha) break; }
+    return best;
+  } else {
+    let best=Infinity;
+    for(const m of moves){ c.move(m); best=Math.min(best, minimax(c,depth-1,true,alpha,beta)); c.undo(); beta=Math.min(beta,best); if(beta<=alpha) break; }
+    return best;
+  }
+}
+function engineMove(){
+  const moves = chessGame.moves();
+  if(!moves.length) return;
+  let bestMove=null, bestScore=Infinity;
+  const shuffled = moves.sort(()=>Math.random()-0.5);
+  for(const m of shuffled){
+    chessGame.move(m);
+    const score = minimax(chessGame, chessDepth-1, true, -Infinity, Infinity);
+    chessGame.undo();
+    if(score < bestScore){ bestScore=score; bestMove=m; }
+  }
+  chessGame.move(bestMove);
+  renderBoard();
+  checkGameOver();
+}
+async function checkGameOver(){
+  if(!chessGame.game_over()) return false;
+  let msg='GAME OVER — DRAW';
+  let outcome='draw';
+  if(chessGame.in_checkmate()){
+    if(chessGame.turn()==='w'){ msg='GAME OVER — OPPONENT WINS'; outcome='loss'; }
+    else { msg='GAME OVER — YOU WIN'; outcome='win'; }
+  }
+  document.getElementById('chessStatus').textContent = msg;
+  await tick();
+  if(outcome==='win'){ vitals.happiness = 80 + Math.floor(Math.random()*21); }
+  else { vitals.happiness = clamp(vitals.happiness + 5 + Math.floor(Math.random()*11)); }
+  vitals.energy = clamp(vitals.energy - (5+Math.floor(Math.random()*6)));
+  vitals.discipline = clamp(vitals.discipline + 1 + Math.floor(Math.random()*4));
+  ensureDailyRoll(Date.now());
+  games.playedToday += 1;
+  await Promise.all([dbSet('vitals', vitals), dbSet('games', games)]);
+  renderVitals();
+  document.getElementById('playAgainRow').classList.remove('hidden');
+  return true;
+}
+
+boot();
+
+if('serviceWorker' in navigator && location.protocol !== 'file:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+</script>
+</body>
+</html>
