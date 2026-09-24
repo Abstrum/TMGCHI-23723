@@ -278,11 +278,14 @@ async function askBrain(currentMeta, currentFacts){
      low   = hunger or energy below 30
      happy = everything else
 */
-const FRAME_SETS = {
-  happy: ['1.png','2.png','3.png','2.png','4.png','5.png','6.png','5.png','1.png'],
-  sleep: ['s1.png','s2.png','s3.png','s2.png','s1.png'],
-  low:   ['l1.png','l1.png','l1.png','l2.png','l3.png','l2.png','l1.png',]
+const FRAME_SETS = [
+{
+  base: "https://abstrum.github.io/TMGCHI-23723/",
+  happy: ["1.png","2.png","3.png","2.png","4.png","5.png","6.png","5.png","1.png"],
+  sleep: ["s1.png","s2.png","s3.png","s2.png","s1.png"],
+  low:   ["l1.png","l1.png","l1.png","l2.png","l3.png","l2.png","l1.png"]
 };
+];
 const FRAME_MS = 450; // ms between frames of the same set
 let frameTimer = null, frameState = null, frameIdx = 0;
 
